@@ -2,6 +2,22 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+
+// Resolver work shouldn't compete with video playback for CPU
+function deprioritize(p) {
+  try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* best effort */ }
+}
+
+// The standalone yt-dlp.exe self-extracts on first launch (and gets scanned
+// by Defender), which is slow enough to stutter the app if it happens during
+// the first drop. Pay that cost at startup instead.
+function warmUpResolver() {
+  const { cmd, baseArgs } = ytDlpCommand();
+  const p = spawn(cmd, [...baseArgs, '--version'], { windowsHide: true });
+  deprioritize(p);
+  p.on('error', () => {});
+}
 
 // Bundled standalone yt-dlp.exe: next to the app in dev (bin/), in
 // resources/bin when packaged. Fall back to a Python install of yt-dlp.
@@ -37,6 +53,7 @@ function resolveStream(url) {
       windowsHide: true,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
     });
+    deprioritize(p);
     let out = '';
     let err = '';
     p.stdout.on('data', d => { out += d; });
@@ -73,6 +90,9 @@ function createWindow() {
   win.loadFile('index.html');
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  warmUpResolver();
+});
 
 app.on('window-all-closed', () => app.quit());

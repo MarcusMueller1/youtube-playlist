@@ -57,18 +57,14 @@ function setStatus(msg, isError = false) {
   statusEl.classList.toggle('error', isError);
 }
 
-async function fetchMeta(videoId, pageUrl) {
-  const thumb = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+async function fetchTitle(pageUrl) {
   try {
     const res = await fetch(
       `https://www.youtube.com/oembed?url=${encodeURIComponent(pageUrl)}&format=json`
     );
-    if (res.ok) {
-      const j = await res.json();
-      return { title: j.title, thumb };
-    }
+    if (res.ok) return (await res.json()).title;
   } catch { /* offline or blocked — fall through */ }
-  return { title: pageUrl, thumb };
+  return pageUrl;
 }
 
 // ---------- Playlist operations ----------
@@ -83,20 +79,27 @@ async function addUrl(rawUrl) {
     return;
   }
   const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const item = { id: videoId, url: pageUrl, title: 'Loading…', thumb: '' };
+  const item = {
+    id: videoId,
+    url: pageUrl,
+    title: 'Loading…',
+    thumb: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`
+  };
   playlist.push(item);
   save();
   render();
   setStatus('Added');
+  resolveItem(item).catch(() => {}); // resolve in the background, ready before play
 
-  const meta = await fetchMeta(videoId, pageUrl);
-  item.title = meta.title;
-  item.thumb = meta.thumb;
-  save();
-  render();
+  // Title arrives async; patch it in place instead of re-rendering the list
+  fetchTitle(pageUrl).then(title => {
+    item.title = title;
+    save();
+    const titleEl = listEl.querySelector(`.item[data-id="${videoId}"] .title`);
+    if (titleEl) titleEl.textContent = title;
+    if (playlist[currentIndex] === item) nowTitle.textContent = title;
+  });
 
-  // Autoplay if nothing is playing yet
-  if (currentIndex === -1) play(playlist.indexOf(item));
 }
 
 function removeAt(i) {
@@ -261,6 +264,35 @@ document.querySelectorAll('.tab').forEach(tab => {
 // Capture the session when the app closes
 window.addEventListener('beforeunload', snapshotCurrentToRecents);
 
+// ---------- Stream resolution ----------
+// Resolving via yt-dlp takes seconds, so it happens ahead of time: queued on
+// drop and prefetched for the next track. Runs are serialized and deduped.
+const pendingResolves = new Map(); // videoId -> Promise<streams>
+let resolveChain = Promise.resolve();
+
+function hasFreshStreams(id) {
+  const c = streamCache.get(id);
+  return !!c && Date.now() - c.at < STREAM_TTL_MS;
+}
+
+function resolveItem(item) {
+  if (hasFreshStreams(item.id)) return Promise.resolve(streamCache.get(item.id).streams);
+  if (pendingResolves.has(item.id)) return pendingResolves.get(item.id);
+  const p = resolveChain
+    .then(() => window.api.resolveStream(item.url))
+    .then(streams => {
+      streamCache.set(item.id, { streams, at: Date.now() });
+      pendingResolves.delete(item.id);
+      return streams;
+    }, err => {
+      pendingResolves.delete(item.id);
+      throw err;
+    });
+  pendingResolves.set(item.id, p);
+  resolveChain = p.catch(() => {});
+  return p;
+}
+
 // ---------- Playback ----------
 // YouTube serves >360p as separate video and audio streams; `audio` is a hidden
 // element kept in lockstep with the visible `video` element.
@@ -285,19 +317,14 @@ async function play(i) {
   nowTitle.textContent = item.title;
 
   const token = ++playToken;
-  const cached = streamCache.get(item.id);
-  let streams = cached && Date.now() - cached.at < STREAM_TTL_MS ? cached.streams : null;
-
-  if (!streams) {
-    setStatus('Resolving stream…');
-    try {
-      streams = await window.api.resolveStream(item.url);
-      streamCache.set(item.id, { streams, at: Date.now() });
-    } catch (e) {
-      if (token !== playToken) return;
-      setStatus(`Failed: ${String(e.message || e).slice(0, 120)}`, true);
-      return;
-    }
+  if (!hasFreshStreams(item.id)) setStatus('Resolving stream…');
+  let streams;
+  try {
+    streams = await resolveItem(item);
+  } catch (e) {
+    if (token !== playToken) return;
+    setStatus(`Failed: ${String(e.message || e).slice(0, 120)}`, true);
+    return;
   }
   if (token !== playToken) return; // user clicked something else meanwhile
 
@@ -311,6 +338,10 @@ async function play(i) {
     audio.muted = video.muted;
   }
   video.play().catch(() => {});
+
+  // Prefetch the next track so skipping and auto-advance are instant
+  const next = playlist[currentIndex + 1];
+  if (next) resolveItem(next).catch(() => {});
 }
 
 function playNext() {
@@ -420,12 +451,14 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 function render() {
   listHead.textContent = `Playlist (${playlist.length})`;
   emptyHint.style.display = currentIndex === -1 ? 'flex' : 'none';
+  const scrollPos = listEl.scrollTop;
   listEl.innerHTML = '';
   playlist.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'item' + (i === currentIndex ? ' playing' : '');
     div.draggable = true;
     div.dataset.index = i;
+    div.dataset.id = item.id;
 
     const img = document.createElement('img');
     img.src = item.thumb || '';
@@ -482,6 +515,7 @@ function render() {
 
     listEl.appendChild(div);
   });
+  listEl.scrollTop = scrollPos;
 }
 
 // ---------- Drag & drop from browser ----------
