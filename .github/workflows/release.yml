@@ -1,0 +1,37 @@
+name: Build installers
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run setup
+      - run: npx electron-builder --win
+      - run: gh release upload "${{ github.event.release.tag_name }}" "dist/YouTube Playlist Setup.exe" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run setup:linux
+      - run: npx electron-builder --linux
+      - run: gh release upload "${{ github.event.release.tag_name }}" dist/*.AppImage --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

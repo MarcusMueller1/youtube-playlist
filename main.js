@@ -19,17 +19,19 @@ function warmUpResolver() {
   p.on('error', () => {});
 }
 
-// Bundled standalone yt-dlp.exe: next to the app in dev (bin/), in
+// Bundled standalone yt-dlp binary: next to the app in dev (bin/), in
 // resources/bin when packaged. Fall back to a Python install of yt-dlp.
 function ytDlpCommand() {
+  const isWin = process.platform === 'win32';
+  const binName = isWin ? 'yt-dlp.exe' : 'yt-dlp';
   const candidates = [
-    path.join(process.resourcesPath || '', 'bin', 'yt-dlp.exe'),
-    path.join(__dirname, 'bin', 'yt-dlp.exe')
+    path.join(process.resourcesPath || '', 'bin', binName),
+    path.join(__dirname, 'bin', binName)
   ];
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return { cmd: c, baseArgs: [] }; } catch { /* keep looking */ }
   }
-  return { cmd: 'python', baseArgs: ['-m', 'yt_dlp'] };
+  return { cmd: isWin ? 'python' : 'python3', baseArgs: ['-m', 'yt_dlp'] };
 }
 
 // Resolve a YouTube page URL to direct stream URLs via yt-dlp.

@@ -1,13 +1,15 @@
 {
   "name": "youtube-playlist",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Personal drag-and-drop YouTube playlist player",
   "author": "Marcus",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "setup": "curl -L --create-dirs -o bin/yt-dlp.exe https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-    "dist": "electron-builder --win"
+    "setup:linux": "curl -L --create-dirs -o bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux && chmod +x bin/yt-dlp",
+    "dist": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
     "electron": "^36.0.0",
@@ -31,6 +33,12 @@
     "win": {
       "target": "nsis",
       "icon": "icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icon.png",
+      "category": "AudioVideo",
+      "artifactName": "YouTube-Playlist-${version}.AppImage"
     },
     "nsis": {
       "oneClick": true,

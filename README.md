@@ -4,7 +4,9 @@ A personal drag-and-drop YouTube playlist player for Windows, built with Electro
 
 ## Install
 
-Grab **YouTube Playlist Setup.exe** from the [latest release](https://github.com/MarcusMueller1/youtube-playlist/releases/latest) and run it — that's it. No prerequisites. Windows SmartScreen will warn once because the installer is unsigned: click *More info → Run anyway*.
+**Windows**: grab **YouTube Playlist Setup.exe** from the [latest release](https://github.com/MarcusMueller1/youtube-playlist/releases/latest) and run it — that's it. No prerequisites. Windows SmartScreen will warn once because the installer is unsigned: click *More info → Run anyway*.
+
+**Linux**: grab the **.AppImage** from the same release, make it executable (`chmod +x YouTube-Playlist-*.AppImage`) and run it. No installation needed.
 
 Everything below this section is only relevant if you want to work on the source code.
 
@@ -25,17 +27,14 @@ Each video is resolved to direct stream URLs. YouTube only serves 360p as a sing
 
 ```
 npm install
-npm run setup   # fetches the bundled stream-resolver binary (not in git)
+npm run setup   # Windows — fetches the bundled stream-resolver binary (not in git)
+npm run setup:linux   # Linux equivalent
 npm start
 ```
 
-## Building the installer
+## Building the installers
 
-```
-npm run dist
-```
-
-Produces `dist/YouTube Playlist Setup.exe` — a one-click installer; target machines need nothing preinstalled.
+`npm run dist` builds the Windows installer, `npm run dist:linux` the Linux AppImage (each on its own platform). Publishing a GitHub release triggers a workflow that builds and attaches both automatically.
 
 ## Note
 
