@@ -1,6 +1,6 @@
 {
   "name": "youtube-playlist",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Personal drag-and-drop YouTube playlist player",
   "author": "Marcus",
   "main": "main.js",
