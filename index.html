@@ -33,8 +33,19 @@
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    transition: width 0.18s ease;
   }
   #leftTabs { display: flex; border-bottom: 1px solid #262a33; }
+  #libToggle {
+    background: none; border: none; color: #8b93a5; cursor: pointer;
+    width: 32px; flex-shrink: 0; padding: 12px 0; font-size: 14px;
+  }
+  #libToggle:hover { color: #cfd3dc; }
+  /* Collapsed: just a slim rail with the expand toggle */
+  body.lib-collapsed #leftbar { width: 33px; }
+  body.lib-collapsed #leftbar .tab,
+  body.lib-collapsed #leftbar .pane,
+  body.lib-collapsed #updateBtn { display: none; }
   .tab {
     flex: 1;
     background: none;
@@ -315,6 +326,7 @@
   <div id="leftTabs">
     <button class="tab active" data-tab="saved">Saved</button>
     <button class="tab" data-tab="recent">Recent</button>
+    <button id="libToggle" title="Hide library">«</button>
   </div>
   <div class="pane" id="savedPane">
     <div id="saveRow">

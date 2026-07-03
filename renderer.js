@@ -297,6 +297,18 @@ newPlName.addEventListener('keydown', e => {
 });
 newPlName.addEventListener('blur', closeNewPlaylistInput);
 
+// Collapsible library sidebar
+const libToggle = document.getElementById('libToggle');
+function setLibCollapsed(collapsed) {
+  document.body.classList.toggle('lib-collapsed', collapsed);
+  libToggle.textContent = collapsed ? '»' : '«';
+  libToggle.title = collapsed ? 'Show library' : 'Hide library';
+  localStorage.setItem('libCollapsed', collapsed ? '1' : '');
+}
+libToggle.addEventListener('click', () =>
+  setLibCollapsed(!document.body.classList.contains('lib-collapsed')));
+setLibCollapsed(!!localStorage.getItem('libCollapsed'));
+
 // Tab switching
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
