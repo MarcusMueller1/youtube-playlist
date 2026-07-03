@@ -3,6 +3,11 @@ name: Build installers
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload installers to"
+        required: true
 
 permissions:
   contents: write
@@ -17,8 +22,8 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run setup
-      - run: npx electron-builder --win
-      - run: gh release upload "${{ github.event.release.tag_name }}" "dist/YouTube Playlist Setup.exe" --clobber
+      - run: npx electron-builder --win --publish never
+      - run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" "dist/YouTube Playlist Setup.exe" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -31,7 +36,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run setup:linux
-      - run: npx electron-builder --linux
-      - run: gh release upload "${{ github.event.release.tag_name }}" dist/*.AppImage --clobber
+      - run: npx electron-builder --linux --publish never
+      - run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/*.AppImage --clobber
         env:
           GH_TOKEN: ${{ github.token }}
