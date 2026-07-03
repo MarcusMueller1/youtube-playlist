@@ -23,7 +23,9 @@ jobs:
       - run: npm ci
       - run: npm run setup
       - run: npx electron-builder --win --publish never
-      - run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" "dist/YouTube Playlist Setup.exe" --clobber
+      # latest.yml + blockmap are what the in-app updater reads; the artifact
+      # name must stay space-free or GitHub renames it and the updater 404s.
+      - run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" "dist/YouTube-Playlist-Setup.exe" "dist/YouTube-Playlist-Setup.exe.blockmap" "dist/latest.yml" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -37,6 +39,6 @@ jobs:
       - run: npm ci
       - run: npm run setup:linux
       - run: npx electron-builder --linux --publish never
-      - run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/*.AppImage --clobber
+      - run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" dist/*.AppImage dist/latest-linux.yml --clobber
         env:
           GH_TOKEN: ${{ github.token }}

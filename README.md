@@ -5,11 +5,13 @@ A drag-and-drop YouTube playlist player for Windows and Linux, built with Electr
 ## Features
 
 - **Drag & drop** — drag the URL from the browser address bar or any YouTube link into the window; pasting works too
-- **Queue** — reorder by dragging, click to jump, autoplays through the list
-- **Saved playlists** — name and save the current queue, reload it anytime
+- **Queue** — reorder by dragging, click to jump, autoplays through the list; copy any video's link back out with 🔗
+- **Saved playlists** — create a named playlist and every video you add is saved to it automatically; reopen it anytime
 - **Recent sessions** — the last 10 unsaved queues are kept automatically and can be restored
 - **Player** — play/pause/skip, volume with mute, keyboard shortcuts (Space, N, P)
 - **Instant playback** — streams resolve in the background as soon as a video is added
+- **Custom background** — set your own image behind the player (shown when idle and in audio-only mode)
+- **In-app updates** — when a new release is out, an update button appears; one click downloads it and a restart installs it
 - Playlists and settings persist between launches
 
 ## Install
@@ -18,7 +20,7 @@ Download from the [latest release](https://github.com/MarcusMueller1/youtube-pla
 
 | Platform | File | |
 |---|---|---|
-| Windows | `YouTube Playlist Setup.exe` | run the installer |
+| Windows | `YouTube-Playlist-Setup.exe` | run the installer |
 | Linux | `YouTube-Playlist-x.y.z.AppImage` | `chmod +x`, then run |
 
 ## Development

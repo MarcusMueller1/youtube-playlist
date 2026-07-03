@@ -18,6 +18,11 @@
   "build": {
     "appId": "com.marcus.youtube-playlist",
     "productName": "YouTube Playlist",
+    "publish": {
+      "provider": "github",
+      "owner": "MarcusMueller1",
+      "repo": "youtube-playlist"
+    },
     "toolsets": {
       "appimage": "1.0.3"
     },
@@ -46,7 +51,10 @@
     "nsis": {
       "oneClick": true,
       "createDesktopShortcut": true,
-      "artifactName": "YouTube Playlist Setup.exe"
+      "artifactName": "YouTube-Playlist-Setup.exe"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

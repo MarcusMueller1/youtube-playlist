@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, dialog, clipboard } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -135,6 +135,34 @@ async function download(sender, url, audioOnly) {
 
 ipcMain.handle('download', (e, url, audioOnly) => download(e.sender, url, audioOnly));
 
+// ---- In-app updates ----
+// electron-updater reads latest.yml from the newest GitHub release. The
+// renderer drives the flow: check on startup, download on click, then
+// restart into the new installer.
+const { autoUpdater } = require('electron-updater');
+autoUpdater.autoDownload = false;
+// Background errors (offline, release without latest.yml) are reported to the
+// renderer through the rejected IPC promises below; don't crash on the event.
+autoUpdater.on('error', () => {});
+
+ipcMain.handle('update-check', async () => {
+  if (!app.isPackaged) return null; // unpacked dev runs have no update feed
+  const res = await autoUpdater.checkForUpdates();
+  return res && res.isUpdateAvailable ? res.updateInfo.version : null;
+});
+
+ipcMain.handle('update-download', e => {
+  const onProgress = p => {
+    if (!e.sender.isDestroyed()) e.sender.send('update-progress', p.percent);
+  };
+  autoUpdater.on('download-progress', onProgress);
+  return autoUpdater
+    .downloadUpdate()
+    .finally(() => autoUpdater.removeListener('download-progress', onProgress));
+});
+
+ipcMain.on('update-install', () => autoUpdater.quitAndInstall());
+
 // ---- Taskbar thumbnail toolbar (Windows) ----
 // Prev / play-pause / next on the taskbar hover preview. The renderer draws
 // the glyph icons on a canvas at startup and reports playback state; button
@@ -160,6 +188,50 @@ ipcMain.on('thumbar-init', (_e, icons) => {
   setThumbar(false);
 });
 ipcMain.on('playback-state', (_e, playing) => setThumbar(playing));
+
+// The sandboxed preload has no clipboard access, so copying goes through here
+ipcMain.on('copy-text', (_e, text) => clipboard.writeText(String(text)));
+
+// ---- Custom background image ----
+// The chosen image is copied into userData as background.<ext>; that file's
+// existence is the whole persistence story.
+function backgroundPath() {
+  try {
+    const dir = app.getPath('userData');
+    const f = fs.readdirSync(dir).find(n => n.startsWith('background.'));
+    return f ? path.join(dir, f) : null;
+  } catch { return null; }
+}
+
+function removeBackgrounds() {
+  const dir = app.getPath('userData');
+  for (const n of fs.readdirSync(dir)) {
+    if (n.startsWith('background.')) {
+      try { fs.unlinkSync(path.join(dir, n)); } catch { /* locked file — ignore */ }
+    }
+  }
+}
+
+ipcMain.handle('bg-get', () => backgroundPath());
+
+ipcMain.handle('bg-choose', async () => {
+  const r = await dialog.showOpenDialog(mainWin, {
+    title: 'Choose a background image',
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
+    properties: ['openFile']
+  });
+  if (r.canceled || !r.filePaths.length) return backgroundPath();
+  removeBackgrounds();
+  const src = r.filePaths[0];
+  const dest = path.join(app.getPath('userData'), 'background' + path.extname(src).toLowerCase());
+  fs.copyFileSync(src, dest);
+  return dest;
+});
+
+ipcMain.handle('bg-clear', () => {
+  removeBackgrounds();
+  return null;
+});
 
 function createWindow() {
   const win = new BrowserWindow({

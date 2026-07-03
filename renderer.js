@@ -2,6 +2,7 @@
 let playlist = [];      // [{ id, url, title, thumb }]
 let currentIndex = -1;
 let savedPlaylists = [];  // [{ name, items, savedAt }]
+let activePlaylist = null; // name of the saved playlist the queue is bound to (auto-saves)
 let recentSessions = [];  // [{ items, endedAt }] — newest first, max 10
 const MAX_RECENTS = 10;
 const streamCache = new Map(); // streamKey(videoId) -> { streams, at }
@@ -18,11 +19,25 @@ const emptyHint = document.getElementById('emptyHint');
 const urlInput = document.getElementById('urlInput');
 const savedListEl = document.getElementById('savedList');
 const recentListEl = document.getElementById('recentList');
-const saveNameInput = document.getElementById('saveName');
+const newPlBtn = document.getElementById('newPlBtn');
+const newPlName = document.getElementById('newPlName');
 
 // ---------- Persistence ----------
 function save() {
   localStorage.setItem('playlist', JSON.stringify(playlist));
+  // The queue auto-saves into the playlist it's bound to
+  const active = savedPlaylists.find(p => p.name === activePlaylist);
+  if (active) {
+    active.items = playlist.map(it => ({ ...it }));
+    active.savedAt = Date.now();
+    saveLibrary();
+    renderLibrary();
+  }
+}
+function setActivePlaylist(name) {
+  activePlaylist = name;
+  if (name) localStorage.setItem('activePlaylist', name);
+  else localStorage.removeItem('activePlaylist');
 }
 function saveLibrary() {
   localStorage.setItem('savedPlaylists', JSON.stringify(savedPlaylists));
@@ -36,6 +51,8 @@ function load() {
   playlist = read('playlist', []);
   savedPlaylists = read('savedPlaylists', []);
   recentSessions = read('recentSessions', []);
+  const active = localStorage.getItem('activePlaylist');
+  activePlaylist = savedPlaylists.some(p => p.name === active) ? active : null;
 }
 
 // ---------- Helpers ----------
@@ -137,6 +154,7 @@ function idsOf(items) {
 // playlist, or is already the newest recent entry.
 function snapshotCurrentToRecents() {
   if (!playlist.length) return;
+  if (activePlaylist) return; // queue is bound to a saved playlist, nothing to lose
   const ids = idsOf(playlist);
   if (savedPlaylists.some(p => idsOf(p.items) === ids)) return;
   if (recentSessions.length && idsOf(recentSessions[0].items) === ids) {
@@ -148,9 +166,12 @@ function snapshotCurrentToRecents() {
   saveLibrary();
 }
 
-// Replace the current queue with the given items (used by Saved and Recent)
-function replaceQueue(items) {
+// Replace the current queue with the given items (used by Saved and Recent).
+// When `name` is set the queue is bound to that saved playlist and edits
+// auto-save into it; recents open unbound.
+function replaceQueue(items, name = null) {
   snapshotCurrentToRecents();
+  setActivePlaylist(name);
   playlist = items.map(it => ({ ...it }));
   currentIndex = -1;
   playToken++;
@@ -162,23 +183,27 @@ function replaceQueue(items) {
   if (playlist.length) play(0);
 }
 
-function saveCurrentPlaylist() {
-  const name = saveNameInput.value.trim();
-  if (!name) { setStatus('Enter a name first', true); return; }
-  if (!playlist.length) { setStatus('Playlist is empty', true); return; }
-  const items = playlist.map(it => ({ ...it }));
-  const existing = savedPlaylists.find(p => p.name.toLowerCase() === name.toLowerCase());
-  if (existing) {
-    existing.items = items;
-    existing.savedAt = Date.now();
-    setStatus(`Updated "${name}"`);
-  } else {
-    savedPlaylists.unshift({ name, items, savedAt: Date.now() });
-    setStatus(`Saved as "${name}"`);
+function createNewPlaylist(rawName) {
+  const name = rawName.trim();
+  if (!name) { setStatus('Enter a name first', true); return false; }
+  if (savedPlaylists.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    setStatus(`"${name}" already exists`, true);
+    return false;
   }
-  saveNameInput.value = '';
+  snapshotCurrentToRecents();
+  savedPlaylists.unshift({ name, items: [], savedAt: Date.now() });
+  setActivePlaylist(name);
+  playlist = [];
+  currentIndex = -1;
+  playToken++;
+  stopMedia();
+  nowTitle.textContent = 'Nothing playing';
+  save();
   saveLibrary();
+  render();
   renderLibrary();
+  setStatus(`Created "${name}" — videos you add are saved to it`);
+  return true;
 }
 
 function fmtWhen(ts) {
@@ -213,19 +238,23 @@ function renderLibrary() {
   savedListEl.innerHTML = '';
   if (!savedPlaylists.length) {
     savedListEl.innerHTML =
-      '<div class="empty">No saved playlists yet.<br>Build a queue, give it a name above and hit 💾.</div>';
+      '<div class="empty">No playlists yet.<br>Hit ＋ New playlist, name it, and every video you add is saved to it.</div>';
   }
   savedPlaylists.forEach((p, i) => {
-    savedListEl.appendChild(makeEntry({
+    const entry = makeEntry({
       name: p.name,
       info: `${p.items.length} video${p.items.length === 1 ? '' : 's'}`,
-      onOpen: () => replaceQueue(p.items),
+      onOpen: () => replaceQueue(p.items, p.name),
       onDelete: () => {
         savedPlaylists.splice(i, 1);
+        if (p.name === activePlaylist) setActivePlaylist(null);
         saveLibrary();
         renderLibrary();
+        render();
       }
-    }));
+    });
+    if (p.name === activePlaylist) entry.classList.add('active');
+    savedListEl.appendChild(entry);
   });
 
   recentListEl.innerHTML = '';
@@ -248,10 +277,25 @@ function renderLibrary() {
   });
 }
 
-document.getElementById('saveBtn').addEventListener('click', saveCurrentPlaylist);
-saveNameInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') saveCurrentPlaylist();
+// "＋ New playlist" swaps to a name input; Enter creates, Escape/blur cancels
+newPlBtn.addEventListener('click', () => {
+  newPlBtn.hidden = true;
+  newPlName.hidden = false;
+  newPlName.value = '';
+  newPlName.focus();
 });
+function closeNewPlaylistInput() {
+  newPlName.hidden = true;
+  newPlBtn.hidden = false;
+}
+newPlName.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (createNewPlaylist(newPlName.value)) closeNewPlaylistInput();
+  } else if (e.key === 'Escape') {
+    closeNewPlaylistInput();
+  }
+});
+newPlName.addEventListener('blur', closeNewPlaylistInput);
 
 // Tab switching
 document.querySelectorAll('.tab').forEach(tab => {
@@ -598,9 +642,10 @@ playBtn.addEventListener('click', togglePlay);
 video.addEventListener('play', () => { playBtn.textContent = '⏸'; });
 video.addEventListener('pause', () => { playBtn.textContent = '▶'; });
 document.getElementById('clearBtn').addEventListener('click', () => {
-  if (!playlist.length) return;
+  if (!playlist.length && !activePlaylist) return;
   snapshotCurrentToRecents();
-  renderLibrary();
+  // Detach before saving so clearing the queue never empties the saved playlist
+  setActivePlaylist(null);
   playlist = [];
   currentIndex = -1;
   playToken++;
@@ -608,11 +653,14 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   nowTitle.textContent = 'Nothing playing';
   save();
   render();
+  renderLibrary();
 });
 
 // ---------- Rendering ----------
 function render() {
-  listHead.textContent = `Playlist (${playlist.length})`;
+  listHead.textContent = activePlaylist
+    ? `${activePlaylist} (${playlist.length})`
+    : `Playlist (${playlist.length})`;
   emptyHint.style.display = currentIndex === -1 ? 'flex' : 'none';
   document.body.classList.toggle('idle', currentIndex === -1);
   const scrollPos = listEl.scrollTop;
@@ -638,13 +686,23 @@ function render() {
     idx.textContent = i === currentIndex ? '▶ now playing' : `#${i + 1}`;
     meta.append(title, idx);
 
+    const cp = document.createElement('button');
+    cp.className = 'copy';
+    cp.textContent = '🔗';
+    cp.title = 'Copy link';
+    cp.addEventListener('click', e => {
+      e.stopPropagation();
+      window.api.copyText(item.url);
+      setStatus('Link copied');
+    });
+
     const rm = document.createElement('button');
     rm.className = 'remove';
     rm.textContent = '✕';
     rm.title = 'Remove';
     rm.addEventListener('click', e => { e.stopPropagation(); removeAt(i); });
 
-    div.append(img, meta, rm);
+    div.append(img, meta, cp, rm);
     div.addEventListener('click', () => play(i));
 
     // Reorder within the list
@@ -745,6 +803,84 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') seekBy(-5);
   else if (e.key.toLowerCase() === 'f') toggleFullscreen();
 });
+
+// ---------- Custom background ----------
+// The main process keeps the image in userData; here it gets painted onto
+// <body>, dimmed so the UI stays readable, and the panels go translucent.
+const bgBtn = document.getElementById('bgBtn');
+const bgMenu = document.getElementById('bgMenu');
+
+function applyBackground(p) {
+  if (p) {
+    // Same file name on every change, so cache-bust with a timestamp
+    const url = encodeURI('file:///' + p.replace(/\\/g, '/')) + '?t=' + Date.now();
+    document.body.style.backgroundImage =
+      `linear-gradient(rgba(13, 15, 20, 0.4), rgba(13, 15, 20, 0.4)), url("${url}")`;
+    document.body.classList.add('has-bg');
+  } else {
+    document.body.style.backgroundImage = '';
+    document.body.classList.remove('has-bg');
+  }
+}
+
+bgBtn.addEventListener('click', () => { bgMenu.hidden = !bgMenu.hidden; });
+document.addEventListener('click', e => {
+  if (!e.target.closest('#bgWrap')) bgMenu.hidden = true;
+});
+bgMenu.querySelector('[data-bg="choose"]').addEventListener('click', async () => {
+  bgMenu.hidden = true;
+  applyBackground(await window.api.chooseBackground());
+});
+bgMenu.querySelector('[data-bg="clear"]').addEventListener('click', async () => {
+  bgMenu.hidden = true;
+  applyBackground(await window.api.clearBackground());
+});
+
+window.api.getBackground().then(applyBackground);
+
+// ---------- In-app updates ----------
+// Check once on startup; the button walks through available → downloading →
+// ready, and clicking in the ready state restarts into the new version.
+const updateBtn = document.getElementById('updateBtn');
+let updateState = 'idle';
+let updateVersion = null;
+
+window.api.onUpdateProgress(pct => {
+  if (updateState === 'downloading') {
+    updateBtn.textContent = `Downloading update… ${Math.round(pct)}%`;
+  }
+});
+
+updateBtn.addEventListener('click', async () => {
+  if (updateState === 'available') {
+    updateState = 'downloading';
+    updateBtn.disabled = true;
+    updateBtn.textContent = 'Downloading update… 0%';
+    try {
+      await window.api.downloadUpdate();
+      updateState = 'ready';
+      updateBtn.textContent = '🔄 Restart to update';
+    } catch {
+      updateState = 'available';
+      updateBtn.textContent = `⬆ Update to v${updateVersion} — retry`;
+      setStatus('Update download failed', true);
+    }
+    updateBtn.disabled = false;
+  } else if (updateState === 'ready') {
+    window.api.installUpdate();
+  }
+});
+
+(async () => {
+  try {
+    updateVersion = await window.api.checkForUpdate();
+  } catch { /* offline or feed unreachable — try again next launch */ }
+  if (updateVersion) {
+    updateState = 'available';
+    updateBtn.textContent = `⬆ Update to v${updateVersion}`;
+    updateBtn.hidden = false;
+  }
+})();
 
 // ---------- Init ----------
 load();
