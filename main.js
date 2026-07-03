@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -37,9 +37,13 @@ function ytDlpCommand() {
 // Resolve a YouTube page URL to direct stream URLs via yt-dlp.
 // YouTube only offers 360p as a combined file, so prefer separate video+audio
 // streams (up to 1080p); the renderer plays them through two synced elements.
-function resolveStream(url) {
+// In audio-only mode a single audio stream is resolved instead.
+function resolveStream(url, audioOnly) {
   return new Promise((resolve, reject) => {
     const { cmd, baseArgs } = ytDlpCommand();
+    const format = audioOnly
+      ? 'bestaudio[ext=m4a]/bestaudio'
+      : 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[acodec!=none][vcodec!=none]/best';
     const args = [
       ...baseArgs,
       // Electron doubles as the Node runtime yt-dlp needs for JS challenges,
@@ -47,7 +51,7 @@ function resolveStream(url) {
       '--js-runtimes', `node:${process.execPath}`,
       '--remote-components', 'ejs:github',
       '--no-playlist',
-      '-f', 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[acodec!=none][vcodec!=none]/best',
+      '-f', format,
       '-g',
       url
     ];
@@ -73,7 +77,89 @@ function resolveStream(url) {
   });
 }
 
-ipcMain.handle('resolve-stream', (_e, url) => resolveStream(url));
+ipcMain.handle('resolve-stream', (_e, url, audioOnly) => resolveStream(url, audioOnly));
+
+// Merging separate video+audio streams into one file needs ffmpeg; without it
+// downloads fall back to YouTube's combined format (~360p).
+let ffmpegCheck = null;
+function ffmpegAvailable() {
+  if (!ffmpegCheck) {
+    ffmpegCheck = new Promise(resolve => {
+      const p = spawn('ffmpeg', ['-version'], { windowsHide: true });
+      p.on('error', () => resolve(false));
+      p.on('close', code => resolve(code === 0));
+    });
+  }
+  return ffmpegCheck;
+}
+
+// Download a video into the system Downloads folder, streaming progress
+// percentages back to the renderer.
+async function download(sender, url, audioOnly) {
+  const { cmd, baseArgs } = ytDlpCommand();
+  const format = audioOnly
+    ? 'bestaudio[ext=m4a]/bestaudio'
+    : (await ffmpegAvailable())
+      ? 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[acodec!=none][vcodec!=none]/best'
+      : 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best';
+  const args = [
+    ...baseArgs,
+    '--js-runtimes', `node:${process.execPath}`,
+    '--remote-components', 'ejs:github',
+    '--no-playlist',
+    '--no-mtime',
+    '--newline',
+    '-f', format,
+    '-o', path.join(app.getPath('downloads'), '%(title)s.%(ext)s'),
+    url
+  ];
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, {
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    });
+    deprioritize(p);
+    let err = '';
+    p.stdout.on('data', d => {
+      const m = String(d).match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+      if (m && !sender.isDestroyed()) sender.send('download-progress', Number(m[1]));
+    });
+    p.stderr.on('data', d => { err += d; });
+    p.on('error', reject);
+    p.on('close', code => {
+      if (code === 0) resolve(true);
+      else reject(new Error(err.split(/\r?\n/).filter(l => l.includes('ERROR')).join(' ') || 'download failed'));
+    });
+  });
+}
+
+ipcMain.handle('download', (e, url, audioOnly) => download(e.sender, url, audioOnly));
+
+// ---- Taskbar thumbnail toolbar (Windows) ----
+// Prev / play-pause / next on the taskbar hover preview. The renderer draws
+// the glyph icons on a canvas at startup and reports playback state; button
+// clicks are forwarded back as media-control events.
+let mainWin = null;
+let thumbarIcons = null;
+
+function setThumbar(playing) {
+  if (process.platform !== 'win32' || !mainWin || mainWin.isDestroyed() || !thumbarIcons) return;
+  const img = k => nativeImage.createFromDataURL(thumbarIcons[k]);
+  const send = action => () => mainWin.webContents.send('media-control', action);
+  mainWin.setThumbarButtons([
+    { tooltip: 'Previous', icon: img('prev'), click: send('prev') },
+    playing
+      ? { tooltip: 'Pause', icon: img('pause'), click: send('playpause') }
+      : { tooltip: 'Play', icon: img('play'), click: send('playpause') },
+    { tooltip: 'Next', icon: img('next'), click: send('next') }
+  ]);
+}
+
+ipcMain.on('thumbar-init', (_e, icons) => {
+  thumbarIcons = icons;
+  setThumbar(false);
+});
+ipcMain.on('playback-state', (_e, playing) => setThumbar(playing));
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -86,10 +172,15 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // When another window fully covers this one, Chromium treats the page as
+      // hidden and pauses video elements that carry no audio track — which is
+      // every >360p stream here, since audio plays through a separate element.
+      backgroundThrottling: false
     }
   });
   win.loadFile('index.html');
+  mainWin = win;
 }
 
 app.whenReady().then(() => {

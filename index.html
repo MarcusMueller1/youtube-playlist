@@ -113,14 +113,64 @@
   #emptyHint .big { font-size: 42px; }
   #emptyHint .msg { font-size: 15px; line-height: 1.6; max-width: 420px; }
 
-  #nowBar {
+  /* Audio-only mode: the video element stays black, show a hint instead */
+  body.audio-only:not(.idle) #videoWrap::after {
+    content: "🎵";
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
+    justify-content: center;
+    font-size: 72px;
+    opacity: 0.2;
+    pointer-events: none;
+  }
+
+  #nowBar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 14px 10px;
     background: #191c23;
     border-top: 1px solid #262a33;
   }
+  #seekRow { display: flex; align-items: center; gap: 10px; }
+  #seekRow .time {
+    font-size: 11px; color: #8b93a5; flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  #seekSlider { flex: 1; accent-color: #5b8def; cursor: pointer; }
+  #controlsRow { display: flex; align-items: center; gap: 10px; }
+
+  /* Download menu */
+  #dlWrap { position: relative; }
+  #dlMenu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+    background: #20242d;
+    border: 1px solid #2c313c;
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    z-index: 20;
+  }
+  #dlMenu[hidden] { display: none; }
+  #dlMenu button {
+    background: none;
+    border: none;
+    color: #dfe3ea;
+    padding: 8px 10px;
+    text-align: left;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  #dlMenu button:hover { background: #2c3a55; }
   #nowTitle {
     flex: 1;
     font-size: 14px;
@@ -253,7 +303,7 @@
 
 <div id="playerPane">
   <div id="videoWrap">
-    <video id="video" controls></video>
+    <video id="video"></video>
     <audio id="audio" style="display:none"></audio>
     <div id="emptyHint">
       <div class="big">🎬</div>
@@ -266,13 +316,29 @@
     </div>
   </div>
   <div id="nowBar">
-    <button class="btn" id="prevBtn" title="Previous">⏮</button>
-    <button class="btn" id="playBtn" title="Play/Pause">▶</button>
-    <button class="btn" id="nextBtn" title="Next">⏭</button>
-    <div id="nowTitle">Nothing playing</div>
-    <div id="status"></div>
-    <button class="btn" id="muteBtn" title="Mute">🔊</button>
-    <input id="volSlider" type="range" min="0" max="100" step="1" title="Volume">
+    <div id="seekRow">
+      <span class="time" id="timeCur">0:00</span>
+      <input id="seekSlider" type="range" min="0" max="1000" step="1" value="0" title="Seek">
+      <span class="time" id="timeDur">0:00</span>
+    </div>
+    <div id="controlsRow">
+      <button class="btn" id="prevBtn" title="Previous">⏮</button>
+      <button class="btn" id="playBtn" title="Play/Pause">▶</button>
+      <button class="btn" id="nextBtn" title="Next">⏭</button>
+      <div id="nowTitle">Nothing playing</div>
+      <div id="status"></div>
+      <button class="btn" id="videoToggle" title="Toggle video">🎬</button>
+      <div id="dlWrap">
+        <button class="btn" id="dlBtn" title="Download">⬇</button>
+        <div id="dlMenu" hidden>
+          <button data-mode="audio">🎵 Audio (m4a)</button>
+          <button data-mode="video">🎬 Video + Audio (mp4)</button>
+        </div>
+      </div>
+      <button class="btn" id="muteBtn" title="Mute">🔊</button>
+      <input id="volSlider" type="range" min="0" max="100" step="1" title="Volume">
+      <button class="btn" id="fsBtn" title="Fullscreen (F)">⛶</button>
+    </div>
   </div>
 </div>
 

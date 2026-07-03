@@ -4,8 +4,9 @@ let currentIndex = -1;
 let savedPlaylists = [];  // [{ name, items, savedAt }]
 let recentSessions = [];  // [{ items, endedAt }] — newest first, max 10
 const MAX_RECENTS = 10;
-const streamCache = new Map(); // videoId -> { streamUrl, at }
+const streamCache = new Map(); // streamKey(videoId) -> { streams, at }
 const STREAM_TTL_MS = 3 * 60 * 60 * 1000; // direct URLs expire, re-resolve after 3h
+let videoEnabled = localStorage.getItem('videoEnabled') !== '0'; // off = audio-only mode
 
 const video = document.getElementById('video');
 const audio = document.getElementById('audio');
@@ -267,28 +268,34 @@ window.addEventListener('beforeunload', snapshotCurrentToRecents);
 // ---------- Stream resolution ----------
 // Resolving via yt-dlp takes seconds, so it happens ahead of time: queued on
 // drop and prefetched for the next track. Runs are serialized and deduped.
-const pendingResolves = new Map(); // videoId -> Promise<streams>
+const pendingResolves = new Map(); // streamKey -> Promise<streams>
 let resolveChain = Promise.resolve();
 
+// Audio-only and video streams cache side by side, so toggling back is instant
+function streamKey(id) {
+  return `${id}:${videoEnabled ? 'av' : 'a'}`;
+}
+
 function hasFreshStreams(id) {
-  const c = streamCache.get(id);
+  const c = streamCache.get(streamKey(id));
   return !!c && Date.now() - c.at < STREAM_TTL_MS;
 }
 
 function resolveItem(item) {
-  if (hasFreshStreams(item.id)) return Promise.resolve(streamCache.get(item.id).streams);
-  if (pendingResolves.has(item.id)) return pendingResolves.get(item.id);
+  const key = streamKey(item.id);
+  if (hasFreshStreams(item.id)) return Promise.resolve(streamCache.get(key).streams);
+  if (pendingResolves.has(key)) return pendingResolves.get(key);
   const p = resolveChain
-    .then(() => window.api.resolveStream(item.url))
+    .then(() => window.api.resolveStream(item.url, !videoEnabled))
     .then(streams => {
-      streamCache.set(item.id, { streams, at: Date.now() });
-      pendingResolves.delete(item.id);
+      streamCache.set(key, { streams, at: Date.now() });
+      pendingResolves.delete(key);
       return streams;
     }, err => {
-      pendingResolves.delete(item.id);
+      pendingResolves.delete(key);
       throw err;
     });
-  pendingResolves.set(item.id, p);
+  pendingResolves.set(key, p);
   resolveChain = p.catch(() => {});
   return p;
 }
@@ -372,9 +379,8 @@ video.addEventListener('volumechange', () => {
 });
 
 // ---------- Volume controls ----------
-// The video element carries no audio track when streams are separate, so its
-// native volume control is disabled; this slider drives video.volume as the
-// single source of truth and the listener above mirrors it to the audio element.
+// This slider drives video.volume as the single source of truth; the
+// volumechange listener above mirrors it to the separate audio element.
 const volSlider = document.getElementById('volSlider');
 const muteBtn = document.getElementById('muteBtn');
 
@@ -405,12 +411,169 @@ setInterval(() => {
 
 video.addEventListener('ended', playNext);
 
+// ---------- Video / audio-only toggle ----------
+const videoToggleBtn = document.getElementById('videoToggle');
+function updateVideoToggleUI() {
+  videoToggleBtn.textContent = videoEnabled ? '🎬' : '🎵';
+  videoToggleBtn.title = videoEnabled
+    ? 'Video on — click for audio only'
+    : 'Audio only — click to enable video';
+  document.body.classList.toggle('audio-only', !videoEnabled);
+}
+videoToggleBtn.addEventListener('click', () => {
+  videoEnabled = !videoEnabled;
+  localStorage.setItem('videoEnabled', videoEnabled ? '1' : '0');
+  updateVideoToggleUI();
+  // Restart the current track in the new mode from the beginning, so the
+  // separate video and audio streams can never start out of sync
+  if (currentIndex !== -1 && video.src) play(currentIndex);
+});
+updateVideoToggleUI();
+
+// ---------- Seek bar & time display ----------
+// The video element has no native controls; this slider is the seek UI.
+// While dragging, only the time label follows the thumb — the actual seek
+// happens once on release, since every seek refetches from the network.
+const seekSlider = document.getElementById('seekSlider');
+const timeCur = document.getElementById('timeCur');
+const timeDur = document.getElementById('timeDur');
+let seekScrubbing = false;
+
+function fmtTime(t) {
+  if (!isFinite(t)) return '–:––';
+  t = Math.max(0, Math.floor(t));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = String(t % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+function scrubTime() {
+  return (Number(seekSlider.value) / 1000) * video.duration;
+}
+
+video.addEventListener('timeupdate', () => {
+  if (seekScrubbing) return;
+  timeCur.textContent = fmtTime(video.currentTime);
+  if (isFinite(video.duration) && video.duration > 0) {
+    seekSlider.value = String(Math.round((video.currentTime / video.duration) * 1000));
+  }
+});
+video.addEventListener('durationchange', () => {
+  timeDur.textContent = fmtTime(video.duration);
+});
+video.addEventListener('emptied', () => {
+  seekSlider.value = '0';
+  timeCur.textContent = '0:00';
+  timeDur.textContent = '0:00';
+});
+seekSlider.addEventListener('input', () => {
+  if (!isFinite(video.duration) || !video.duration) { seekSlider.value = '0'; return; }
+  seekScrubbing = true;
+  timeCur.textContent = fmtTime(scrubTime());
+});
+seekSlider.addEventListener('change', () => {
+  if (seekScrubbing && isFinite(video.duration)) video.currentTime = scrubTime();
+  seekScrubbing = false;
+});
+
+function seekBy(delta) {
+  if (!video.src || !isFinite(video.duration)) return;
+  video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + delta));
+}
+
+// ---------- Download ----------
+// Downloads go to the system Downloads folder; one at a time, progress in the
+// status area. Video+audio merges to 1080p when ffmpeg is installed, else the
+// main process falls back to YouTube's combined ~360p format.
+const dlBtn = document.getElementById('dlBtn');
+const dlMenu = document.getElementById('dlMenu');
+let downloading = false;
+
+dlBtn.addEventListener('click', () => {
+  if (currentIndex === -1) { setStatus('Nothing playing', true); return; }
+  dlMenu.hidden = !dlMenu.hidden;
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#dlWrap')) dlMenu.hidden = true;
+});
+
+dlMenu.querySelectorAll('button').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    dlMenu.hidden = true;
+    const item = playlist[currentIndex];
+    if (!item) return;
+    if (downloading) { setStatus('A download is already running'); return; }
+    downloading = true;
+    setStatus('Download starting…');
+    try {
+      await window.api.download(item.url, btn.dataset.mode === 'audio');
+      setStatus('Saved to Downloads ✓');
+    } catch (err) {
+      setStatus(`Download failed: ${String(err.message || err).slice(0, 120)}`, true);
+    } finally {
+      downloading = false;
+    }
+  });
+});
+
+window.api.onDownloadProgress(pct => {
+  if (downloading) setStatus(`Downloading… ${Math.round(pct)}%`);
+});
+
+// ---------- Taskbar thumbnail buttons (Windows) ----------
+// The thumbnail toolbar needs bitmap icons; draw the media glyphs on a canvas
+// so no image assets have to ship with the app.
+function makeThumbIcon(draw) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  draw(g);
+  return c.toDataURL('image/png');
+}
+window.api.initThumbar({
+  prev: makeThumbIcon(g => {
+    g.fillRect(7, 8, 4, 16);
+    g.beginPath(); g.moveTo(25, 8); g.lineTo(25, 24); g.lineTo(12, 16); g.closePath(); g.fill();
+  }),
+  play: makeThumbIcon(g => {
+    g.beginPath(); g.moveTo(11, 7); g.lineTo(11, 25); g.lineTo(26, 16); g.closePath(); g.fill();
+  }),
+  pause: makeThumbIcon(g => {
+    g.fillRect(9, 8, 5, 16);
+    g.fillRect(18, 8, 5, 16);
+  }),
+  next: makeThumbIcon(g => {
+    g.fillRect(21, 8, 4, 16);
+    g.beginPath(); g.moveTo(7, 8); g.lineTo(7, 24); g.lineTo(20, 16); g.closePath(); g.fill();
+  })
+});
+video.addEventListener('play', () => window.api.setPlaybackState(true));
+video.addEventListener('pause', () => window.api.setPlaybackState(false));
+window.api.onMediaControl(action => {
+  if (action === 'prev') playPrev();
+  else if (action === 'next') playNext();
+  else togglePlay();
+});
+
+// ---------- Fullscreen & click-to-pause ----------
+// Fullscreen the whole player pane so the control bar stays available.
+const playerPane = document.getElementById('playerPane');
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else playerPane.requestFullscreen().catch(() => {});
+}
+document.getElementById('fsBtn').addEventListener('click', toggleFullscreen);
+video.addEventListener('dblclick', toggleFullscreen);
+video.addEventListener('click', () => { if (video.src) togglePlay(); });
+
 function handleMediaError() {
   if (!video.src) return;
   // Stale cached URL? Drop cache and retry once.
   const item = playlist[currentIndex];
-  if (item && streamCache.has(item.id)) {
-    streamCache.delete(item.id);
+  if (item && streamCache.has(streamKey(item.id))) {
+    streamCache.delete(streamKey(item.id));
     play(currentIndex);
   } else {
     setStatus('Playback error', true);
@@ -451,6 +614,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 function render() {
   listHead.textContent = `Playlist (${playlist.length})`;
   emptyHint.style.display = currentIndex === -1 ? 'flex' : 'none';
+  document.body.classList.toggle('idle', currentIndex === -1);
   const scrollPos = listEl.scrollTop;
   listEl.innerHTML = '';
   playlist.forEach((item, i) => {
@@ -563,14 +727,23 @@ urlInput.addEventListener('keydown', e => {
   }
 });
 
-// Keyboard shortcuts: space play/pause, N/P next/prev
+// Keyboard shortcuts: space play/pause, N/P next/prev, arrows seek, F fullscreen
+// Clicked buttons/sliders keep focus and would swallow or double-handle keys;
+// blur them so shortcuts always work after mouse interaction.
+document.addEventListener('click', e => {
+  if (e.target.matches('button, input[type="range"]')) e.target.blur();
+});
 document.addEventListener('keydown', e => {
-  if (document.activeElement === urlInput) return;
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'BUTTON')) return;
   if (e.key === ' ') {
     e.preventDefault();
     togglePlay();
   } else if (e.key.toLowerCase() === 'n') playNext();
   else if (e.key.toLowerCase() === 'p') playPrev();
+  else if (e.key === 'ArrowRight') seekBy(5);
+  else if (e.key === 'ArrowLeft') seekBy(-5);
+  else if (e.key.toLowerCase() === 'f') toggleFullscreen();
 });
 
 // ---------- Init ----------
