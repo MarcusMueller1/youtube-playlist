@@ -18,6 +18,9 @@
   "build": {
     "appId": "com.marcus.youtube-playlist",
     "productName": "YouTube Playlist",
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
     "files": [
       "main.js",
       "preload.js",

@@ -19,7 +19,7 @@ Download from the [latest release](https://github.com/MarcusMueller1/youtube-pla
 | Platform | File | |
 |---|---|---|
 | Windows | `YouTube Playlist Setup.exe` | run the installer |
-| Linux | `YouTube-Playlist-x.y.z.AppImage` | `chmod +x`, then run (requires `libfuse2`) |
+| Linux | `YouTube-Playlist-x.y.z.AppImage` | `chmod +x`, then run |
 
 ## Development
 
