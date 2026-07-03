@@ -6,7 +6,7 @@ A personal drag-and-drop YouTube playlist player for Windows, built with Electro
 
 **Windows**: grab **YouTube Playlist Setup.exe** from the [latest release](https://github.com/MarcusMueller1/youtube-playlist/releases/latest) and run it — that's it. No prerequisites. Windows SmartScreen will warn once because the installer is unsigned: click *More info → Run anyway*.
 
-**Linux**: grab the **.AppImage** from the same release, make it executable (`chmod +x YouTube-Playlist-*.AppImage`) and run it. No installation needed.
+**Linux**: grab the **.AppImage** from the same release, make it executable (`chmod +x YouTube-Playlist-*.AppImage`) and run it. No installation needed. If you get `dlopen(): error loading libfuse.so.2`, install FUSE first: `sudo apt install libfuse2` (Ubuntu 24.04+: `libfuse2t64`).
 
 Everything below this section is only relevant if you want to work on the source code.
 
