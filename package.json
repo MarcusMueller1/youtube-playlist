@@ -1,0 +1,40 @@
+{
+  "name": "youtube-playlist",
+  "version": "1.0.0",
+  "description": "Personal drag-and-drop YouTube playlist player",
+  "author": "Marcus",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.marcus.youtube-playlist",
+    "productName": "YouTube Playlist",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": true,
+      "artifactName": "YouTube Playlist Setup.exe"
+    }
+  }
+}
