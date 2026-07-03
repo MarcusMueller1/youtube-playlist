@@ -2,6 +2,12 @@
 
 A personal drag-and-drop YouTube playlist player for Windows, built with Electron. Drag video URLs out of your browser into the app to build a playlist on the fly — it plays them in its own window at up to 1080p.
 
+## Install
+
+Grab **YouTube Playlist Setup.exe** from the [latest release](https://github.com/MarcusMueller1/youtube-playlist/releases/latest) and run it — that's it. No prerequisites. Windows SmartScreen will warn once because the installer is unsigned: click *More info → Run anyway*.
+
+Everything below this section is only relevant if you want to work on the source code.
+
 ## Features
 
 - **Drag & drop**: drag the URL from the browser address bar (or any YouTube link) into the window; paste with Ctrl+V also works
@@ -15,7 +21,7 @@ A personal drag-and-drop YouTube playlist player for Windows, built with Electro
 
 Each video is resolved to direct stream URLs. YouTube only serves 360p as a single combined stream, so the app fetches separate video and audio streams (up to 1080p) and plays them through two synced media elements.
 
-## Development
+## Development (from source)
 
 ```
 npm install
