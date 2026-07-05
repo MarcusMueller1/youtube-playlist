@@ -449,17 +449,30 @@ function playPrev() {
   if (currentIndex > 0) play(currentIndex - 1);
 }
 
-// Keep the audio element in sync with the video element
+// Keep the audio element in sync with the video element.
+// Never re-seek audio while it is still seeking: setting currentTime aborts
+// the in-flight fetch and restarts it, which used to thrash for many seconds
+// after a far seek. Let the running seek land, then correct any drift.
+function resyncAudio() {
+  if (hasSeparateAudio && !audio.seeking &&
+      Math.abs(audio.currentTime - video.currentTime) > 0.35) {
+    audio.currentTime = video.currentTime;
+  }
+}
 video.addEventListener('play', () => { if (hasSeparateAudio) audio.play().catch(() => {}); });
 video.addEventListener('pause', () => { if (hasSeparateAudio) audio.pause(); });
-video.addEventListener('waiting', () => { if (hasSeparateAudio) audio.pause(); });
+video.addEventListener('waiting', () => {
+  if (hasSeparateAudio) audio.pause();
+  if (!statusEl.textContent) setStatus('Buffering…');
+});
 video.addEventListener('playing', () => {
+  if (statusEl.textContent === 'Buffering…') setStatus('');
   if (hasSeparateAudio && !video.paused) {
-    audio.currentTime = video.currentTime;
+    resyncAudio();
     audio.play().catch(() => {});
   }
 });
-video.addEventListener('seeked', () => { if (hasSeparateAudio) audio.currentTime = video.currentTime; });
+video.addEventListener('seeked', resyncAudio);
 video.addEventListener('volumechange', () => {
   audio.volume = video.volume;
   audio.muted = video.muted;
@@ -493,10 +506,7 @@ video.muted = localStorage.getItem('muted') === '1';
 updateVolumeUI();
 video.addEventListener('ratechange', () => { audio.playbackRate = video.playbackRate; });
 setInterval(() => {
-  if (hasSeparateAudio && !video.paused && !video.seeking &&
-      Math.abs(audio.currentTime - video.currentTime) > 0.35) {
-    audio.currentTime = video.currentTime;
-  }
+  if (!video.paused && !video.seeking) resyncAudio();
 }, 500);
 
 video.addEventListener('ended', playNext);
@@ -562,14 +572,21 @@ seekSlider.addEventListener('input', () => {
   seekScrubbing = true;
   timeCur.textContent = fmtTime(scrubTime());
 });
+// Seek both elements at once: the video needs seconds to re-buffer after a
+// far seek, and the audio fetch should run during that wait, not after it
+function seekTo(t) {
+  video.currentTime = t;
+  if (hasSeparateAudio) audio.currentTime = video.currentTime;
+}
+
 seekSlider.addEventListener('change', () => {
-  if (seekScrubbing && isFinite(video.duration)) video.currentTime = scrubTime();
+  if (seekScrubbing && isFinite(video.duration)) seekTo(scrubTime());
   seekScrubbing = false;
 });
 
 function seekBy(delta) {
   if (!video.src || !isFinite(video.duration)) return;
-  video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + delta));
+  seekTo(Math.min(video.duration, Math.max(0, video.currentTime + delta)));
 }
 
 // ---------- Download ----------
