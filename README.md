@@ -4,15 +4,14 @@ A drag-and-drop YouTube playlist player for Windows and Linux, built with Electr
 
 ## Features
 
-- **Drag & drop** — drag the URL from the browser address bar or any YouTube link into the window; pasting works too
-- **Queue** — reorder by dragging, click to jump, autoplays through the list; copy any video's link back out with 🔗
-- **Saved playlists** — create a named playlist and every video you add is saved to it automatically; reopen it anytime; the library bar folds away with «
-- **Recent sessions** — the last 10 unsaved queues are kept automatically and can be restored
-- **Player** — play/pause/skip, volume with mute, keyboard shortcuts (Space, N, P)
-- **Instant playback** — streams resolve in the background as soon as a video is added
-- **Custom background** — set your own image behind the player (shown when idle and in audio-only mode)
-- **In-app updates** — when a new release is out, an update button appears; one click downloads it and a restart installs it
-- Playlists and settings persist between launches
+- Drag the URL from the browser address bar, or any YouTube link, straight into the window (pasting works too)
+- Reorder the queue by dragging, click any entry to jump to it, and let it autoplay through the list; a hover button copies a video's link back out
+- Create a named playlist and every video you add is saved to it automatically; the last 10 unsaved sessions are kept as well
+- Play/pause/skip, volume with mute, and keyboard shortcuts (Space, N, P, arrow keys, F for fullscreen)
+- Streams resolve in the background as soon as a video is added, so playback starts instantly
+- Audio-only mode for music, plus downloads as m4a or mp4
+- Set your own background image behind the player, shown when idle and in audio-only mode
+- Updates install from inside the app: when a new release is out a button appears, one click downloads it and a restart installs it
 
 ## Install
 
@@ -42,4 +41,4 @@ Each video is resolved to direct stream URLs ahead of playback. YouTube serves h
 
 ---
 
-For personal use — respect YouTube's terms of service and your local laws.
+For personal use. Respect YouTube's terms of service and your local laws.
