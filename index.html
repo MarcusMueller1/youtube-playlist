@@ -27,7 +27,7 @@
 
   /* ---- Left library bar ---- */
   #leftbar {
-    width: 250px;
+    width: clamp(180px, 20vw, 250px);
     background: #14161c;
     border-right: 1px solid #262a33;
     display: flex;
@@ -119,14 +119,39 @@
     flex-direction: column;
     min-width: 0;
   }
-  #videoWrap {
+  /* The video is a centered 16:9 card that takes only the space it needs,
+     so a custom background stays visible around it. In audio-only mode it
+     shrinks to a compact tile; fullscreen (which targets #playerPane,
+     keeping the control bar) goes edge to edge. */
+  #stage {
     flex: 1;
+    min-height: 0;
+    container-type: size;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #videoWrap {
+    aspect-ratio: 16 / 9;
+    width: min(100cqw - 24px, (100cqh - 24px) * 16 / 9);
     background: #000;
+    border: 1px solid #262a33;
+    border-radius: 12px;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
-    min-height: 0;
+  }
+  body.audio-only:not(.idle) #videoWrap {
+    width: min(360px, 100cqw - 24px);
+  }
+  #playerPane:fullscreen #videoWrap {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border: none;
+    border-radius: 0;
   }
   video { width: 100%; height: 100%; }
   #emptyHint {
@@ -144,6 +169,12 @@
   }
   #emptyHint .big { font-size: 42px; }
   #emptyHint .msg { font-size: 15px; line-height: 1.6; max-width: 420px; }
+  /* Small stage: the full drop hint outgrows the card — drop the icon, tighten */
+  @container (max-width: 460px) {
+    #emptyHint { gap: 6px; padding: 12px; }
+    #emptyHint .big { display: none; }
+    #emptyHint .msg { font-size: 12px; }
+  }
 
   /* Audio-only mode: the video element stays black, show a hint instead */
   body.audio-only:not(.idle) #videoWrap::after {
@@ -172,7 +203,10 @@
     font-variant-numeric: tabular-nums;
   }
   #seekSlider { flex: 1; accent-color: #5b8def; cursor: pointer; }
-  #controlsRow { display: flex; align-items: center; gap: 10px; }
+  /* Wrap instead of clipping when the pane gets narrow; the utility cluster
+     moves to its own line as one unit */
+  #controlsRow { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+  #rightControls { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 
   /* Popup menus (download, background) */
   #dlWrap, #bgWrap { position: relative; }
@@ -215,24 +249,24 @@
     background: #262a33;
     border: none;
     color: #e6e8ee;
-    padding: 8px 14px;
+    padding: 7px 12px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
   }
   .btn:hover { background: #333947; }
   #status { font-size: 12px; color: #8b93a5; padding: 0 4px; max-width: 300px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #status.error { color: #f28b82; }
   #volSlider {
-    width: 110px;
+    width: clamp(64px, 9vw, 110px);
     accent-color: #5b8def;
     cursor: pointer;
   }
 
   /* ---- Playlist sidebar (current queue) ---- */
   #sidebar {
-    width: 320px;
+    width: clamp(230px, 26vw, 320px);
     background: #171a20;
     border-left: 1px solid #262a33;
     display: flex;
@@ -306,6 +340,14 @@
   .item:hover .copy { visibility: visible; }
   .item .copy:hover { color: #8ab4f8; }
 
+  /* Narrow window: smaller thumbnails, and the per-item buttons only take
+     space while the row is hovered, so titles keep room to breathe */
+  @media (max-width: 1000px) {
+    .item img { width: 72px; height: 40px; }
+    .item .remove, .item .copy { display: none; }
+    .item:hover .remove, .item:hover .copy { display: block; }
+  }
+
   /* ---- Drop overlay ---- */
   #dropOverlay {
     position: fixed; inset: 0;
@@ -342,6 +384,7 @@
 </div>
 
 <div id="playerPane">
+  <div id="stage">
   <div id="videoWrap">
     <video id="video"></video>
     <audio id="audio" style="display:none"></audio>
@@ -355,6 +398,7 @@
       </div>
     </div>
   </div>
+  </div>
   <div id="nowBar">
     <div id="seekRow">
       <span class="time" id="timeCur">0:00</span>
@@ -367,24 +411,26 @@
       <button class="btn" id="nextBtn" title="Next">⏭</button>
       <div id="nowTitle">Nothing playing</div>
       <div id="status"></div>
-      <button class="btn" id="videoToggle" title="Toggle video">🎬</button>
-      <div id="bgWrap">
-        <button class="btn" id="bgBtn" title="Background image">🖼</button>
-        <div id="bgMenu" hidden>
-          <button data-bg="choose">🖼 Choose image…</button>
-          <button data-bg="clear">✕ Remove background</button>
+      <div id="rightControls">
+        <button class="btn" id="videoToggle" title="Toggle video">🎬</button>
+        <div id="bgWrap">
+          <button class="btn" id="bgBtn" title="Background image">🖼</button>
+          <div id="bgMenu" hidden>
+            <button data-bg="choose">🖼 Choose image…</button>
+            <button data-bg="clear">✕ Remove background</button>
+          </div>
         </div>
-      </div>
-      <div id="dlWrap">
-        <button class="btn" id="dlBtn" title="Download">⬇</button>
-        <div id="dlMenu" hidden>
-          <button data-mode="audio">🎵 Audio (m4a)</button>
-          <button data-mode="video">🎬 Video + Audio (mp4)</button>
+        <div id="dlWrap">
+          <button class="btn" id="dlBtn" title="Download">⬇</button>
+          <div id="dlMenu" hidden>
+            <button data-mode="audio">🎵 Audio (m4a)</button>
+            <button data-mode="video">🎬 Video + Audio (mp4)</button>
+          </div>
         </div>
+        <button class="btn" id="muteBtn" title="Mute">🔊</button>
+        <input id="volSlider" type="range" min="0" max="100" step="1" title="Volume">
+        <button class="btn" id="fsBtn" title="Fullscreen (F)">⛶</button>
       </div>
-      <button class="btn" id="muteBtn" title="Mute">🔊</button>
-      <input id="volSlider" type="range" min="0" max="100" step="1" title="Volume">
-      <button class="btn" id="fsBtn" title="Fullscreen (F)">⛶</button>
     </div>
   </div>
 </div>
