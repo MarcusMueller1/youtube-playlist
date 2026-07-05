@@ -107,7 +107,7 @@ async function addUrl(rawUrl) {
   save();
   render();
   setStatus('Added');
-  resolveItem(item).catch(() => {}); // resolve in the background, ready before play
+  schedulePrefetch(item); // resolve in the background, ready before play
 
   // Title arrives async; patch it in place instead of re-rendering the list
   fetchTitle(pageUrl).then(title => {
@@ -122,6 +122,7 @@ async function addUrl(rawUrl) {
 
 function removeAt(i) {
   const wasCurrent = i === currentIndex;
+  unschedulePrefetch(playlist[i].id);
   playlist.splice(i, 1);
   if (i < currentIndex) currentIndex--;
   else if (wasCurrent) {
@@ -181,6 +182,10 @@ function replaceQueue(items, name = null) {
   render();
   renderLibrary();
   if (playlist.length) play(0);
+  // Warm the whole queue so jumping to any track is instant, same as a
+  // freshly dropped queue (play(0) already claimed the first item)
+  prefetchQueue.length = 0;
+  playlist.forEach(schedulePrefetch);
 }
 
 function createNewPlaylist(rawName) {
@@ -322,10 +327,14 @@ document.querySelectorAll('.tab').forEach(tab => {
 window.addEventListener('beforeunload', snapshotCurrentToRecents);
 
 // ---------- Stream resolution ----------
-// Resolving via yt-dlp takes seconds, so it happens ahead of time: queued on
-// drop and prefetched for the next track. Runs are serialized and deduped.
+// Resolving via yt-dlp takes seconds, so it happens ahead of time: the whole
+// queue prefetches in the background whenever it changes. Prefetches run one
+// process at a time so they never swamp playback, but the track the user
+// actually plays skips the queue and resolves immediately in parallel — it
+// must never wait behind a pile of prefetches.
 const pendingResolves = new Map(); // streamKey -> Promise<streams>
-let resolveChain = Promise.resolve();
+const prefetchQueue = [];          // items awaiting a background resolve
+let prefetchBusy = false;
 
 // Audio-only and video streams cache side by side, so toggling back is instant
 function streamKey(id) {
@@ -337,23 +346,48 @@ function hasFreshStreams(id) {
   return !!c && Date.now() - c.at < STREAM_TTL_MS;
 }
 
-function resolveItem(item) {
+function resolveNow(item) {
   const key = streamKey(item.id);
   if (hasFreshStreams(item.id)) return Promise.resolve(streamCache.get(key).streams);
   if (pendingResolves.has(key)) return pendingResolves.get(key);
-  const p = resolveChain
-    .then(() => window.api.resolveStream(item.url, !videoEnabled))
-    .then(streams => {
+  const p = window.api.resolveStream(item.url, !videoEnabled).then(
+    streams => {
       streamCache.set(key, { streams, at: Date.now() });
       pendingResolves.delete(key);
       return streams;
-    }, err => {
+    },
+    err => {
       pendingResolves.delete(key);
       throw err;
-    });
+    }
+  );
   pendingResolves.set(key, p);
-  resolveChain = p.catch(() => {});
   return p;
+}
+
+function schedulePrefetch(item) {
+  if (!item) return;
+  const key = streamKey(item.id);
+  if (hasFreshStreams(item.id) || pendingResolves.has(key)) return;
+  if (prefetchQueue.some(q => streamKey(q.id) === key)) return;
+  prefetchQueue.push(item);
+  pumpPrefetch();
+}
+
+function unschedulePrefetch(id) {
+  for (let i = prefetchQueue.length - 1; i >= 0; i--) {
+    if (prefetchQueue[i].id === id) prefetchQueue.splice(i, 1);
+  }
+}
+
+function pumpPrefetch() {
+  if (prefetchBusy) return;
+  const item = prefetchQueue.shift();
+  if (!item) return;
+  prefetchBusy = true;
+  resolveNow(item)
+    .catch(() => {}) // play() retries on demand, with the error surfaced there
+    .finally(() => { prefetchBusy = false; pumpPrefetch(); });
 }
 
 // ---------- Playback ----------
@@ -383,7 +417,7 @@ async function play(i) {
   if (!hasFreshStreams(item.id)) setStatus('Resolving stream…');
   let streams;
   try {
-    streams = await resolveItem(item);
+    streams = await resolveNow(item);
   } catch (e) {
     if (token !== playToken) return;
     setStatus(`Failed: ${String(e.message || e).slice(0, 120)}`, true);
@@ -402,9 +436,9 @@ async function play(i) {
   }
   video.play().catch(() => {});
 
-  // Prefetch the next track so skipping and auto-advance are instant
-  const next = playlist[currentIndex + 1];
-  if (next) resolveItem(next).catch(() => {});
+  // Prefetch the next tracks so skipping and auto-advance are instant
+  schedulePrefetch(playlist[currentIndex + 1]);
+  schedulePrefetch(playlist[currentIndex + 2]);
 }
 
 function playNext() {
@@ -658,6 +692,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   snapshotCurrentToRecents();
   // Detach before saving so clearing the queue never empties the saved playlist
   setActivePlaylist(null);
+  prefetchQueue.length = 0;
   playlist = [];
   currentIndex = -1;
   playToken++;
@@ -898,3 +933,5 @@ updateBtn.addEventListener('click', async () => {
 load();
 render();
 renderLibrary();
+// Warm the restored queue in the background so the first click plays instantly
+playlist.forEach(schedulePrefetch);
